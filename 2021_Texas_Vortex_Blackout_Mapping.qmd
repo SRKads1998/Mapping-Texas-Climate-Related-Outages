@@ -10,7 +10,7 @@ execute:
 ---
 ## ReadMe Screenshots
 ![Screenshot1](images/screenshot1.png)
-![Screenshot2](images/screenshot2.png)
+![Screenshot2](images/screenshot4.png)
 ![Screenshot3](images/screenshot3.png)
 
 
@@ -270,4 +270,6 @@ acs_blacked_out_plot <- tm_shape(acs_blacked_out) +
 acs_blacked_out_plot
 ```
 
+### Reflection on Analysis
+What I found was that, unfortunately, I was unable to determine a correlation between the the census tracts and areas which experienced blackouts due to my own limitations in coding. I could see that there was definite areas which had a tangible changes in illumination coverage, but I was unable to create any meaningful visuals when joining this data with the census tracts. Its possible that had the analysis worked, there may have been some a higher number of areas with lower socioeconomic standing impacted by the blackout then not, particularly since older properties are likely more susceptible to extreme weather events, but I cannot say for sure given the current status of this analysis. 
 

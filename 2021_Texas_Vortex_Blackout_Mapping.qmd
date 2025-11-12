@@ -1,0 +1,268 @@
+---
+title: "Visualizing the Impact of The 2021 Polar Vortex Storm on Lighting in Texas"
+author: "Stephan Kadonoff"
+date: 11/11/2025
+format: html
+editor: visual
+execute: 
+  echo: true
+  message: false
+---
+
+## Part 1 Preliminary Data Introduction
+
+In this stage, we want to introduce the data relevant to the analysis.
+
+```{r}
+#read in relevant libraries
+#| message: false
+#| warning: false
+library(terra) # raster handling
+library(tidyverse)
+library(here)
+library(tmap) # map making
+library(kableExtra) # table formatting
+library(spData) # spatial data
+library(spDataLarge) # spatial data
+library(geodata) # spatial data
+library(stars)
+```
+
+```{r}
+#| message: false
+#| warning: false
+# read in tiff files from the VIIRS data sets
+VNP_1038_1 <- read_stars(here(
+  "data", "VNP46A1", "VNP46A1.A2021038.h08v05.001.2021039064328.tif"
+))
+VNP_1038_2 <- read_stars(here(
+  "data", "VNP46A1", "VNP46A1.A2021038.h08v06.001.2021039064329.tif"
+))
+VNP_1047_1 <- read_stars(here(
+  "data", "VNP46A1", "VNP46A1.A2021047.h08v05.001.2021048091106.tif"
+))
+VNP_1047_2 <- read_stars(here(
+  "data", "VNP46A1", "VNP46A1.A2021047.h08v06.001.2021048091105.tif"
+))
+plot(VNP_1038_1)
+```
+
+
+```{r}
+#| message: false
+#| warning: false
+# utilize st_mosaic to merge same day files
+VNP_1038 <- st_mosaic(VNP_1038_1, VNP_1038_2)
+VNP_1047 <- st_mosaic(VNP_1047_1, VNP_1047_2)
+
+# plot merged tifs to see preliminary visualization
+plot(VNP_1047)
+plot(VNP_1038)
+```
+
+```{r}
+#| message: false
+#| warning: false
+# find change in illumination by subtracting brightness value of 02-16 from 02-07
+VNP_subtracted <- (VNP_1038 - VNP_1047)
+plot(VNP_subtracted)
+VNP_subtracted <- rast(VNP_subtracted)
+# set the raster values within a matrix such that visual range is in a binary format, with all values 200 and up set as 1
+rcl <- matrix(c(-Inf, 200, 0,
+                200, Inf, 1),
+              ncol = 3, byrow = TRUE)
+# reclassify th
+vnp_reclassed <- classify(VNP_subtracted, rcl = rcl)
+plot(vnp_reclassed,
+     main = "Difference in Lumination after 2021 Storm",
+     key.pos = NULL)
+
+```
+
+```{r}
+#| message: false
+#| warning: false
+# create a mask of the above reclassified map
+vnp_mask <- vnp_reclassed
+vnp_mask[vnp_mask < 1] <- NA
+
+# plot it
+vnp_masked1 <- mask(vnp_reclassed, vnp_mask)
+plot(vnp_masked1)
+
+# set raster to vector
+lumination_diff <- as.polygons(vnp_masked1) %>%
+  st_as_sf() %>%
+  st_make_valid()
+plot(lumination_diff)
+lumination_diff
+```
+
+```{r}
+#| message: false
+#| warning: false
+# create a bbox centered on houston
+houston_coords <- st_bbox(c(xmin = -96.5, xmax = -94.5, ymin = 29, ymax = 30.5), crs = st_crs(vnp_masked1)) %>%
+  st_as_sfc
+houston_coords
+```
+
+```{r}
+#| message: false
+#| warning: false
+# texas zoom
+houston_zoomed = st_bbox(c(xmin = -96.5, xmax = -94.5, ymin = 29, ymax = 30.5), crs = st_crs(vnp_masked1)) %>%
+  st_as_sfc()
+
+# crop to houston
+houston_cropped <- st_crop(houston_coords, lumination_diff)
+# update houston_cropped CRS to EPSG:3083
+houston_cropped <-houston_cropped %>%
+  st_transform(crs = 3083)
+st_crs(houston_cropped)
+
+#plot the houston centered lumination difference
+houston_cropped_plot <- tm_shape(houston_cropped) +
+  tm_basemap() +
+  tm_borders() +
+  tm_title("2021 Houston Illumination Difference") +
+  tm_scale_bar(position = c('bottom', 'left')) +
+  tm_compass()
+houston_cropped_plot
+
+```
+
+## Part 2 Exclude highways from the cropped blackout mask
+
+```{r}
+#| message: false
+#| warning: false
+# read in the highway data
+road_data <- st_read((here("data", "gis_osm_roads_free_1.gpkg", "gis_osm_roads_free_1.gpkg")))
+
+highway_data <- road_data %>%
+  filter(fclass == "motorway")
+
+# remove general road data
+rm(road_data)
+# convert highway data to CRS 3083
+highway_data <- highway_data %>%
+  st_transform(crs = 3083)
+# check units for st_buffer
+st_crs(highway_data)$units
+
+# plot the highway data
+tm_shape(highway_data) +
+  tm_lines() +
+  tm_basemap() +
+  tm_scalebar() +
+  tm_compass(position = c('top', 'left'))
+```
+
+
+```{r}
+# create a buffer around the highways of 200 meters
+highway_buffered <- st_buffer(highway_data, dist = 200)
+
+#identify areas within 200 meters of all highways
+
+highway_200m <- st_union(highway_buffered)
+class(highway_200m)
+
+# find the areas greater than 200 meter from all highways and keep it is as an sf data class
+blackout_not_highway <- st_difference(houston_cropped, highway_200m)
+
+class(blackout_not_highway)
+
+#plot the non high way sections which experienced blackouts
+blacked_out_plot <- tm_shape(blackout_not_highway) +
+  tm_basemap() +
+  tm_polygons() +
+  tm_title("Light Illumination Outside of Highway Boundary in Houston Texas") +
+  tm_compass(position = c('top', 'left')) + 
+  tm_scalebar()
+blacked_out_plot
+
+```
+
+## Part 3 Identify the number of homes likely impacted by blackouts
+
+```{r}
+#| message: false
+#| warning: false
+# read in building data 
+building_data <- st_read(dsn = here("data", "gis_osm_buildings_a_free_1.gpkg", "gis_osm_buildings_a_free_1.gpkg"),
+  query = "
+    SELECT *
+    FROM gis_osm_buildings_a_free_1
+    WHERE (type IS NULL AND name IS NULL)
+       OR type IN ('residential', 'apartments', 'house', 'static_caravan', 'detached')
+  "
+)
+
+# change the crs of building_data
+building_data <- building_data %>%
+  st_transform(crs = 3083)
+
+# transform blackout_not_highway to an sf object
+blackout_not_highway <- st_sf(geometry = blackout_not_highway)
+
+class(blackout_not_highway)
+
+# find subset of building data which correspond with the non-highway black out data
+
+blacked_out_buildings <- st_filter(building_data, blackout_not_highway)
+
+# plot the blacked out buildings 
+blacked_out_buildings_plot <- tm_shape(blacked_out_buildings) +
+  tm_polygons() +
+  tm_basemap() +
+  tm_scalebar() +
+  tm_compass(position = c('top', 'left')) +
+  tm_title("Buildings Which had Blackouts in Houston Texas")
+blacked_out_buildings_plot
+
+```
+
+
+
+```{r}
+#| message: false
+#| warning: false
+# read in Census data
+
+acs_geom <- st_read("data/ACS_2019_5YR_TRACT_48_TEXAS.gdb",
+                    layer = "ACS_2019_5YR_TRACT_48_TEXAS")
+acs_income <- st_read("data/ACS_2019_5YR_TRACT_48_TEXAS.gdb",
+                      layer = "X19_INCOME")
+# join the 
+acs_full <- left_join(acs_geom, acs_income, by = c("GEOID"))
+
+# set acs_full CRS to match others
+acs_full <- acs_full %>%
+  st_transform(crs = 3083)
+```
+
+```{r}
+# verify that the CRS match between blacked_out_buildings and acs_full
+
+if(st_crs(blacked_out_buildings) == st_crs(acs_full)) {
+  message("The CRSs match!")
+} else {
+  warning(" The CRSs do not match!")
+}
+```
+
+```{r}
+# find the polygons that intersect between acs_full and blacked_out_buildings
+acs_blacked_out <- st_filter(acs_full, blacked_out_buildings, .predicate = st_intersects)
+
+acs_blacked_out_plot <- tm_shape(acs_blacked_out) +
+  tm_polygons() +
+  tm_basemap() +
+  tm_scalebar() +
+  tm_compass(position = c('top', 'left'))
+acs_blacked_out_plot
+```
+
+
